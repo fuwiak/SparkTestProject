@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+target/
+.gradle/
+.scala-build/
+.bsp/
+.metals/
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Scala/Java
+*.class
+*.jar
+*.war
+*.ear
+*.log
+
+# Coursier
+cs
