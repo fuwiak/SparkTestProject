@@ -1,0 +1,7 @@
+version: '3.9'
+services:
+  spark-app:
+    build: .
+    container_name: spark-app
+    ports:
+      - "4040:4040"
