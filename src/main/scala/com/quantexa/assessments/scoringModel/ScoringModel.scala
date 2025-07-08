@@ -53,22 +53,16 @@ object ScoringModel extends App {
 
   //END GIVEN CODE
 
-  val customerDocument = spark.read.parquet("src/main/resources/customerDocument.parquet")
-    .as[CustomerDocument]
+  val customerDocument =
+    spark.read.parquet("src/main/resources/customerDocument.parquet").as[CustomerDocument]
 
-  val scoringModel: Dataset[ScoringModel] = customerDocument
-    .map(document =>
-      ScoringModel(
-        document.customerId,
-        document.forename,
-        document.surname,
-        document.accounts,
-        document.address,
-        document.address.exists(address =>
-          (address.country getOrElse "").toLowerCase == "british virgin islands")
-      ))
+  val scoringModel: Dataset[ScoringModel] = customerDocument.map { doc =>
+    val hasBVI = doc.address.exists(a => a.country.exists(_.equalsIgnoreCase("British Virgin Islands")))
+    ScoringModel(doc.customerId, doc.forename, doc.surname, doc.accounts, doc.address, hasBVI)
+  }
 
   scoringModel.show(1000, truncate = false)
-  println(s"${scoringModel.where("linkToBVI == true").count()} customers have an address in British Virgin Islands")
+  val bviCount = scoringModel.filter(_.linkToBVI).count()
+  println(s"$bviCount customers have an address in British Virgin Islands")
 
 }

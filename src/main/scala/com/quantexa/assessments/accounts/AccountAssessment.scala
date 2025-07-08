@@ -89,58 +89,31 @@ object AccountAssessment extends App {
 
 //END GIVEN CODE
 
-  case class CustomerAccount(
-                             customerId: String,
-                             accountId: String,
-                             balance: Long
-                             )
+  // Summarise account information for each customer
+  val accountSummary: Dataset[(String, Seq[AccountData])] =
+    accountDS
+      .groupByKey(_.customerId)
+      .mapGroups { case (cid, accounts) => cid -> accounts.toSeq }
 
-  case class CustomerStats(
-                          customerId: String,
-                          accounts: Seq[AccountData],
-                          numberAccounts: Int,
-                          totalBalance: Long,
-                          averageBalance: Double
-                          )
-
-  val customerAccount = customerDS
-    .joinWith(accountDS, customerDS("customerId") === accountDS("customerId"), joinType = "left")
-    .map { case (customer, account) =>
-      CustomerAccount(
-        customer.customerId,
-        Option(account).fold("")(_.accountId),
-        Option(account).fold(0.0)(_.balance).toLong
-      )
-    }
-
-  val customerStats = customerAccount
-    .groupByKey(account => account.customerId)
-    .mapGroups((customerId, accountInfo) => {
-      val accounts = accountInfo.toSeq
-      val accountSeq = accounts
-        .filter(_.balance != 0)
-        .map(account => AccountData(account.customerId, account.accountId, account.balance))
-      val numberAccounts = accountSeq.size
-      val totalBalance = accounts.map(_.balance).sum
-      val averageBalance: Double =
-        totalBalance.toDouble / (if (numberAccounts > 0) numberAccounts else 1)
-      CustomerStats(customerId, accountSeq, numberAccounts, totalBalance, averageBalance)
-    })
-
-  val customerAccountOutputDS: Dataset[CustomerAccountOutput] = customerStats
-    .dropDuplicates("customerId")
-    .joinWith(customerDS, customerStats("customerId") === customerDS("customerId"))
-    .map { case (stats, customer) =>
-      CustomerAccountOutput(
-        stats.customerId,
-        customer.forename,
-        customer.surname,
-        stats.accounts,
-        stats.numberAccounts,
-        stats.totalBalance,
-        stats.averageBalance
-      )
-    }
+  // Join customers to their accounts and compute statistics
+  val customerAccountOutputDS: Dataset[CustomerAccountOutput] =
+    customerDS
+      .joinWith(accountSummary, customerDS("customerId") === accountSummary("_1"), "left_outer")
+      .map { case (customer, optAccounts) =>
+        val accounts = Option(optAccounts).map(_._2).getOrElse(Seq.empty[AccountData])
+        val totalBalance = accounts.map(_.balance).sum
+        val numberAccounts = accounts.size
+        val averageBalance = if (numberAccounts > 0) totalBalance.toDouble / numberAccounts else 0.0
+        CustomerAccountOutput(
+          customer.customerId,
+          customer.forename,
+          customer.surname,
+          accounts,
+          numberAccounts,
+          totalBalance,
+          averageBalance
+        )
+      }
 
   customerAccountOutputDS.show(1000, truncate=false)
   customerAccountOutputDS.write.mode("overwrite").parquet("src/main/resources/customerAccountOutputDS.parquet")

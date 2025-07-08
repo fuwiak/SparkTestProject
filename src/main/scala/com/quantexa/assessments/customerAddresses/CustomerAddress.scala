@@ -108,51 +108,32 @@ object CustomerAddress extends App {
 
   //END GIVEN CODE
 
-  case class CustomerAddress(
-                            customerId: String,
-                            address: Seq[AddressData]
-                            )
-
   val addressRawDS: Dataset[AddressRawData] = addressDF.as[AddressRawData]
 
-  val addressData = addressRawDS
-    .map(address =>
-      AddressData(
-        address.addressId,
-        address.customerId,
-        address.address,
-        None: Option[Int],
-        None: Option[String],
-        None: Option[String],
-        None: Option[String]
-      )
-    )
+  // Map raw addresses to AddressData and parse
+  val parsedAddresses: Dataset[AddressData] = addressRawDS
+    .map(raw => AddressData(raw.addressId, raw.customerId, raw.address, None, None, None, None))
+    .map(address => addressParser(Seq(address)).head)
 
-  val addressDataParsed = addressData
-    .map(address => CustomerAddress(
-      address.customerId,
-      addressParser(Seq(address))
-    ))
+  // Group parsed addresses by customer
+  val addressesByCustomer: Dataset[(String, Seq[AddressData])] =
+    parsedAddresses
+      .groupByKey(_.customerId)
+      .mapGroups { case (cid, addr) => cid -> addr.toSeq }
 
-  val customerAccountDS = spark.read.parquet("src/main/resources/customerAccountOutputDS.parquet")
-    .as[CustomerAccountOutput]
+  val customerAccountDS =
+    spark.read.parquet("src/main/resources/customerAccountOutputDS.parquet").as[CustomerAccountOutput]
 
-  val customerDocument: Dataset[CustomerDocument] = customerAccountDS
-    .joinWith(
-      addressDataParsed,
-      customerAccountDS("customerId") === addressDataParsed("customerId"),
-      joinType = "left_outer").map { case (customer, address) =>
-      CustomerDocument(
-        customer.customerId,
-        customer.forename,
-        customer.surname,
-        customer.accounts,
-        address.address
-      )
-    }
+  // Join customers to their addresses
+  val customerDocument: Dataset[CustomerDocument] =
+    customerAccountDS
+      .joinWith(addressesByCustomer, customerAccountDS("customerId") === addressesByCustomer("_1"), "left_outer")
+      .map { case (customer, optAddr) =>
+        val addresses = Option(optAddr).map(_._2).getOrElse(Seq.empty[AddressData])
+        CustomerDocument(customer.customerId, customer.forename, customer.surname, customer.accounts, addresses)
+      }
 
   customerDocument.show(1000, truncate = false)
   customerDocument.write.mode("overwrite").parquet("src/main/resources/customerDocument.parquet")
-
 
 }
